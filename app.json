@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "health-connect-uploader",
+    "slug": "health-connect-uploader",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.anonymous.healthconnectuploader"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "react-native-health-connect",
+        {
+          "permissions": [
+            {
+              "accessType": "write",
+              "recordType": "ExerciseSession"
+            },
+            {
+              "accessType": "write",
+              "recordType": "HeartRate"
+            },
+            {
+              "accessType": "write",
+              "recordType": "HeartRateVariabilityRmssd"
+            }
+          ]
+        }
+      ]
+    ]
+  }
+}
