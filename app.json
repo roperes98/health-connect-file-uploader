@@ -23,7 +23,7 @@
     },
     "plugins": [
       [
-        "react-native-health-connect",
+        "expo-health-connect",
         {
           "permissions": [
             {
