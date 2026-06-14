@@ -1,17 +1,50 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View, Button, Alert } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  View,
+  Alert,
+  Pressable,
+  ActivityIndicator,
+  SafeAreaView,
+  ScrollView,
+  Platform,
+} from 'react-native';
 import { useEffect, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 import { parseTcx } from './utils/parseTcx';
+import {
+  buildRecordsFromActivity,
+  insertRecordsInBatches,
+} from './utils/buildHealthConnectRecords';
 import {
   initialize,
   requestPermission,
-  insertRecords
+  insertRecords,
 } from 'react-native-health-connect';
+
+const COLORS = {
+  background: '#EEF4FB',
+  surface: '#FFFFFF',
+  primary: '#0B6E99',
+  primaryDark: '#094D6B',
+  primaryLight: '#E6F4FE',
+  text: '#1A2B3C',
+  textMuted: '#5C7080',
+  success: '#1B8A5A',
+  successBg: '#E8F7EF',
+  warning: '#C47A00',
+  warningBg: '#FFF6E6',
+  border: '#D8E4EE',
+  accent: '#FF6B4A',
+};
 
 export default function App() {
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     async function initHealthConnect() {
@@ -27,13 +60,25 @@ export default function App() {
         }
       } catch (err) {
         console.warn('Health Connect initialization failed', err);
+      } finally {
+        setIsInitializing(false);
       }
     }
     initHealthConnect();
   }, []);
 
   const handlePickFile = async () => {
+    if (!isInitialized) {
+      Alert.alert(
+        'Health Connect unavailable',
+        'Health Connect is not initialized. Rebuild the app with a development or preview build (Expo Go is not supported) and grant permissions when prompted.'
+      );
+      return;
+    }
+
     try {
+      setIsUploading(true);
+
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
         copyToCacheDirectory: true,
@@ -41,86 +86,360 @@ export default function App() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const fileUri = result.assets[0].uri;
-        console.log("File picked:", fileUri);
+        console.log('File picked:', fileUri);
 
-        const fileContent = await FileSystem.readAsStringAsync(fileUri, {
-          encoding: FileSystem.EncodingType.UTF8,
-        });
+        const fileContent = await new File(fileUri).text();
 
-        console.log("File read successfully, length:", fileContent.length);
+        console.log('File read successfully, length:', fileContent.length);
 
         const parsedActivities = parseTcx(fileContent);
-        if (parsedActivities && parsedActivities.length > 0) {
-          console.log(`Parsed ${parsedActivities.length} activities.`);
+        if (!parsedActivities || parsedActivities.length === 0) {
+          Alert.alert('Error', 'No activities found in the TCX file.');
+          return;
+        }
 
-          let recordsToInsert = [];
+        console.log(`Parsed ${parsedActivities.length} activities.`);
 
-          for (const activity of parsedActivities) {
-            if (activity.startTime && activity.endTime) {
-              const exerciseSessionRecord = {
-                recordType: 'ExerciseSession',
-                startTime: activity.startTime,
-                endTime: activity.endTime,
-                exerciseType: 56, // Running as default, mapping can be improved
-                title: `${activity.sport || 'Exercise'} from TCX`,
-              };
-              recordsToInsert.push(exerciseSessionRecord);
+        const recordsToInsert = parsedActivities.flatMap(buildRecordsFromActivity);
 
-              if (activity.heartRateSamples && activity.heartRateSamples.length > 0) {
-                const heartRateRecord = {
-                  recordType: 'HeartRate',
-                  startTime: activity.startTime,
-                  endTime: activity.endTime,
-                  samples: activity.heartRateSamples,
-                };
-                recordsToInsert.push(heartRateRecord);
-              }
-
-              if (activity.rmssd) {
-                const hrvRecord = {
-                  recordType: 'HeartRateVariabilityRmssd',
-                  time: activity.endTime,
-                  heartRateVariabilityMillis: activity.rmssd,
-                };
-                recordsToInsert.push(hrvRecord);
-              }
-            }
-          }
-
-          if (recordsToInsert.length > 0) {
-            console.log("Records mapped, ready to insert. Count:", recordsToInsert.length);
-            try {
-              const insertedIds = await insertRecords(recordsToInsert);
-              console.log("Successfully inserted records with IDs:", insertedIds);
-              Alert.alert('Success', 'Records uploaded to Health Connect!');
-            } catch (insertErr) {
-              console.error("Insertion failed:", insertErr);
-              Alert.alert('Error', 'Failed to insert records into Health Connect');
-            }
+        if (recordsToInsert.length > 0) {
+          console.log('Records mapped, ready to insert. Count:', recordsToInsert.length);
+          try {
+            await insertRecordsInBatches(recordsToInsert, insertRecords);
+            console.log('Successfully inserted records. Count:', recordsToInsert.length);
+            Alert.alert(
+              'Success',
+              `Uploaded ${recordsToInsert.length} records to Health Connect.`
+            );
+          } catch (insertErr) {
+            console.error('Insertion failed:', insertErr);
+            Alert.alert(
+              'Error',
+              `Failed to insert records into Health Connect: ${insertErr?.message ?? insertErr}`
+            );
           }
         }
       }
     } catch (err) {
       console.warn('File pick/parse failed', err);
-      Alert.alert('Error', 'Failed to process file');
+      Alert.alert('Error', `Failed to process file: ${err?.message ?? err}`);
+    } finally {
+      setIsUploading(false);
     }
   };
 
+  const statusConfig = isInitializing
+    ? {
+        label: 'Connecting to Health Connect…',
+        detail: 'Checking permissions and availability',
+        color: COLORS.warning,
+        bg: COLORS.warningBg,
+        icon: 'sync-outline',
+      }
+    : isInitialized
+      ? {
+          label: 'Ready to import',
+          detail: 'Health Connect is connected and permissions granted',
+          color: COLORS.success,
+          bg: COLORS.successBg,
+          icon: 'checkmark-circle',
+        }
+      : {
+          label: 'Health Connect unavailable',
+          detail: 'Use a development or preview build — Expo Go is not supported',
+          color: COLORS.accent,
+          bg: '#FFF0ED',
+          icon: 'alert-circle',
+        };
+
+  const canUpload = isInitialized && !isUploading && !isInitializing;
+
   return (
-    <View style={styles.container}>
-      <Text>Health Connect Uploader</Text>
-      <Text>{isInitialized ? 'Health Connect Initialized' : 'Initializing...'}</Text>
-      <Button title="Pick TCX File" onPress={handlePickFile} />
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar style="dark" />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.hero}>
+          <View style={styles.logoCircle}>
+            <Ionicons name="fitness" size={36} color={COLORS.primary} />
+          </View>
+          <Text style={styles.title}>Health Connect Uploader</Text>
+          <Text style={styles.subtitle}>
+            Import workout data from TCX files into Android Health Connect
+          </Text>
+        </View>
+
+        <View style={[styles.card, styles.statusCard, { backgroundColor: statusConfig.bg }]}>
+          <View style={[styles.statusIconWrap, { backgroundColor: statusConfig.color + '22' }]}>
+            {isInitializing ? (
+              <ActivityIndicator size="small" color={statusConfig.color} />
+            ) : (
+              <Ionicons name={statusConfig.icon} size={22} color={statusConfig.color} />
+            )}
+          </View>
+          <View style={styles.statusTextWrap}>
+            <Text style={[styles.statusLabel, { color: statusConfig.color }]}>
+              {statusConfig.label}
+            </Text>
+            <Text style={styles.statusDetail}>{statusConfig.detail}</Text>
+          </View>
+        </View>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.uploadCard,
+            !canUpload && styles.uploadCardDisabled,
+            pressed && canUpload && styles.uploadCardPressed,
+          ]}
+          onPress={handlePickFile}
+          disabled={!canUpload}
+        >
+          <View style={styles.uploadIconWrap}>
+            {isUploading ? (
+              <ActivityIndicator size="large" color={COLORS.primary} />
+            ) : (
+              <Ionicons name="cloud-upload-outline" size={40} color={COLORS.primary} />
+            )}
+          </View>
+          <Text style={styles.uploadTitle}>
+            {isUploading ? 'Processing file…' : 'Pick TCX File'}
+          </Text>
+          <Text style={styles.uploadHint}>
+            {isUploading
+              ? 'Parsing activity and uploading records'
+              : 'Tap to select a .tcx workout export from your device'}
+          </Text>
+        </Pressable>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>What gets imported</Text>
+          {[
+            { icon: 'barbell-outline', label: 'Exercise sessions', desc: 'Sport, start and end times' },
+            { icon: 'heart-outline', label: 'Heart rate samples', desc: 'BPM data from trackpoints' },
+            { icon: 'pulse-outline', label: 'HRV (RMSSD)', desc: 'Calculated from heart rate when available' },
+          ].map((item) => (
+            <View key={item.label} style={styles.featureRow}>
+              <View style={styles.featureIcon}>
+                <Ionicons name={item.icon} size={18} color={COLORS.primary} />
+              </View>
+              <View style={styles.featureText}>
+                <Text style={styles.featureLabel}>{item.label}</Text>
+                <Text style={styles.featureDesc}>{item.desc}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.stepsCard}>
+          <Text style={styles.sectionTitle}>How it works</Text>
+          {['Select a TCX file', 'App parses your workout', 'Data is sent to Health Connect'].map(
+            (step, index) => (
+              <View key={step} style={styles.stepRow}>
+                <View style={styles.stepBadge}>
+                  <Text style={styles.stepNumber}>{index + 1}</Text>
+                </View>
+                <Text style={styles.stepText}>{step}</Text>
+              </View>
+            )
+          )}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
+const cardShadow = Platform.select({
+  ios: {
+    shadowColor: '#1A2B3C',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+  },
+  android: { elevation: 3 },
+  default: {},
+});
+
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.background,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 32,
+  },
+  hero: {
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  logoCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: COLORS.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 16,
+    ...cardShadow,
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: COLORS.text,
+    letterSpacing: -0.5,
+    textAlign: 'center',
+  },
+  subtitle: {
+    marginTop: 8,
+    fontSize: 15,
+    lineHeight: 22,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    maxWidth: 300,
+  },
+  card: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...cardShadow,
+  },
+  statusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderColor: 'transparent',
+  },
+  statusIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusTextWrap: {
+    flex: 1,
+  },
+  statusLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  statusDetail: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    color: COLORS.textMuted,
+  },
+  uploadCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 20,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    borderStyle: 'dashed',
+    ...cardShadow,
+  },
+  uploadCardDisabled: {
+    opacity: 0.55,
+    borderColor: COLORS.border,
+  },
+  uploadCardPressed: {
+    backgroundColor: COLORS.primaryLight,
+    transform: [{ scale: 0.98 }],
+  },
+  uploadIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  uploadTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 6,
+  },
+  uploadHint: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    maxWidth: 260,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 14,
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  featureIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  featureText: {
+    flex: 1,
+    paddingTop: 2,
+  },
+  featureLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.text,
+  },
+  featureDesc: {
+    marginTop: 2,
+    fontSize: 13,
+    color: COLORS.textMuted,
+  },
+  stepsCard: {
+    backgroundColor: COLORS.primaryDark,
+    borderRadius: 16,
+    padding: 18,
+    ...cardShadow,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  stepBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumber: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  stepText: {
+    flex: 1,
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
   },
 });

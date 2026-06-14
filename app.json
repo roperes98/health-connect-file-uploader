@@ -16,12 +16,27 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.anonymous.healthconnectuploader"
+      "package": "com.anonymous.healthconnectuploader",
+      "permissions": [
+        "android.permission.health.WRITE_EXERCISE",
+        "android.permission.health.WRITE_HEART_RATE",
+        "android.permission.health.WRITE_HEART_RATE_VARIABILITY"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 26
+          }
+        }
+      ],
       [
         "expo-health-connect",
         {
@@ -40,7 +55,13 @@
             }
           ]
         }
-      ]
-    ]
+      ],
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1e48ab60-9360-49a7-a641-dcbe4b4325ce"
+      }
+    }
   }
 }
