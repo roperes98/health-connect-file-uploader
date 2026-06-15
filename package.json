@@ -4,25 +4,34 @@
   "main": "index.js",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@types/react": "~19.2.14",
     "expo": "~56.0.11",
     "expo-build-properties": "~56.0.18",
     "expo-document-picker": "^56.0.4",
     "expo-file-system": "~56.0.8",
     "expo-font": "~56.0.6",
     "expo-health-connect": "^0.1.1",
+    "expo-medical-records": "file:modules/expo-medical-records",
+    "expo-modules-core": "^56.0.17",
     "expo-status-bar": "~56.0.4",
+    "express": "^5.2.1",
     "fast-xml-parser": "^5.8.0",
+    "markitdown": "^0.0.4",
+    "markitdown-ts": "^0.0.10",
+    "multer": "^2.2.0",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
     "react-native-health-connect": "^3.5.3",
-    "react-native-web": "^0.21.2"
+    "react-native-web": "^0.21.2",
+    "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web"
+    "start": "./start.sh",
+    "android": "./start.sh --android",
+    "ios": "./start.sh --ios",
+    "web": "./start.sh --web"
   },
   "private": true
 }

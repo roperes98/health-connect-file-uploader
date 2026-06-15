@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { parseTcx } from './utils/parseTcx';
+import ExpoMedicalRecordsModule from 'expo-medical-records';
 import {
   buildRecordsFromActivity,
   insertRecordsInBatches,
@@ -45,6 +46,7 @@ export default function App() {
   const [isInitialized, setIsInitialized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
 
   useEffect(() => {
     async function initHealthConnect() {
@@ -52,6 +54,7 @@ export default function App() {
         const isAvailable = await initialize();
         if (isAvailable) {
           setIsInitialized(true);
+          // Wait to request health connect permissions, noting Medical Records requires the newly added android.permission.health.WRITE_MEDICAL_DATA
           await requestPermission([
             { accessType: 'write', recordType: 'ExerciseSession' },
             { accessType: 'write', recordType: 'HeartRate' },
@@ -128,6 +131,68 @@ export default function App() {
     }
   };
 
+  const handlePickPdfFile = async () => {
+    if (!isInitialized) {
+      Alert.alert(
+        'Health Connect unavailable',
+        'Health Connect is not initialized.'
+      );
+      return;
+    }
+
+    try {
+      setIsUploadingPdf(true);
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const fileUri = result.assets[0].uri;
+        console.log('PDF File picked:', fileUri);
+
+        const formData = new FormData();
+        formData.append('pdf', {
+          uri: fileUri,
+          name: result.assets[0].name || 'record.pdf',
+          type: 'application/pdf',
+        });
+
+        // For Android emulator pointing to host localhost or configurable via process.env.API_URL
+        const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://10.0.2.2:3000/process-pdf';
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned status ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        const fhirDataStr = data.fhirData;
+        console.log('Got FHIR data from server');
+
+        await ExpoMedicalRecordsModule.writeMedicalResource(fhirDataStr);
+
+        Alert.alert('Success', 'Medical record uploaded to Health Connect.');
+      }
+    } catch (err) {
+      console.warn('PDF process failed', err);
+      Alert.alert('Error', `Failed to process PDF: ${err?.message ?? err}`);
+    } finally {
+      setIsUploadingPdf(false);
+    }
+  };
+
   const statusConfig = isInitializing
     ? {
         label: 'Connecting to Health Connect…',
@@ -187,31 +252,61 @@ export default function App() {
           </View>
         </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.uploadCard,
-            !canUpload && styles.uploadCardDisabled,
-            pressed && canUpload && styles.uploadCardPressed,
-          ]}
-          onPress={handlePickFile}
-          disabled={!canUpload}
-        >
-          <View style={styles.uploadIconWrap}>
-            {isUploading ? (
-              <ActivityIndicator size="large" color={COLORS.primary} />
-            ) : (
-              <Ionicons name="cloud-upload-outline" size={40} color={COLORS.primary} />
-            )}
-          </View>
-          <Text style={styles.uploadTitle}>
-            {isUploading ? 'Processing file…' : 'Pick TCX File'}
-          </Text>
-          <Text style={styles.uploadHint}>
-            {isUploading
-              ? 'Parsing activity and uploading records'
-              : 'Tap to select a .tcx workout export from your device'}
-          </Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.uploadCard,
+              { flex: 1, marginBottom: 0 },
+              !canUpload && styles.uploadCardDisabled,
+              pressed && canUpload && styles.uploadCardPressed,
+            ]}
+            onPress={handlePickFile}
+            disabled={!canUpload}
+          >
+            <View style={styles.uploadIconWrap}>
+              {isUploading ? (
+                <ActivityIndicator size="large" color={COLORS.primary} />
+              ) : (
+                <Ionicons name="cloud-upload-outline" size={40} color={COLORS.primary} />
+              )}
+            </View>
+            <Text style={styles.uploadTitle}>
+              {isUploading ? 'Processing…' : 'Pick TCX File'}
+            </Text>
+            <Text style={styles.uploadHint}>
+              {isUploading
+                ? 'Uploading records'
+                : 'Select .tcx workout'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.uploadCard,
+              { flex: 1, marginBottom: 0 },
+              !canUpload && styles.uploadCardDisabled,
+              pressed && canUpload && styles.uploadCardPressed,
+            ]}
+            onPress={handlePickPdfFile}
+            disabled={!canUpload}
+          >
+            <View style={styles.uploadIconWrap}>
+              {isUploadingPdf ? (
+                <ActivityIndicator size="large" color={COLORS.primary} />
+              ) : (
+                <Ionicons name="document-text-outline" size={40} color={COLORS.primary} />
+              )}
+            </View>
+            <Text style={styles.uploadTitle}>
+              {isUploadingPdf ? 'Processing…' : 'Pick PDF Record'}
+            </Text>
+            <Text style={styles.uploadHint}>
+              {isUploadingPdf
+                ? 'Parsing PDF and uploading'
+                : 'Select medical PDF'}
+            </Text>
+          </Pressable>
+        </View>
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>What gets imported</Text>
