@@ -1,0 +1,10 @@
+{
+  "name": "expo-medical-records",
+  "version": "0.1.0",
+  "description": "A local Expo module for Medical Records API",
+  "main": "index.js",
+  "dependencies": {},
+  "peerDependencies": {
+    "expo": "*"
+  }
+}

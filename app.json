@@ -20,13 +20,15 @@
       "permissions": [
         "android.permission.health.WRITE_EXERCISE",
         "android.permission.health.WRITE_HEART_RATE",
-        "android.permission.health.WRITE_HEART_RATE_VARIABILITY"
+        "android.permission.health.WRITE_HEART_RATE_VARIABILITY",
+        "android.permission.health.WRITE_MEDICAL_DATA"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withMedicalRecords.js",
       [
         "expo-build-properties",
         {
